@@ -1,5 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
-
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using MySql.Data.MySqlClient;
 using ResortManagementSystem_2.Model;
 
 namespace ResortManagementSystem.Controllers
@@ -8,74 +9,145 @@ namespace ResortManagementSystem.Controllers
     [ApiController]
     public class CottageController : ControllerBase
     {
-        private static List<Cottage> cottages = new List<Cottage>
-    {
-        new Cottage { Id = 1, Name = "Beachside Bungalow", IsAvailable = true, Capacity = 4, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 2, Name = "Mountain Retreat", IsAvailable = false, Capacity = 6, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 3, Name = "Lakeside Cabin", IsAvailable = true, Capacity = 2, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 4, Name = "Forest Lodge", IsAvailable = true, Capacity = 5, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 5, Name = "Garden Cottage", IsAvailable = false, Capacity = 3, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 6, Name = "Cozy Hideaway", IsAvailable = true, Capacity = 4, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 7, Name = "Ocean View Retreat", IsAvailable = true, Capacity = 8, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 8, Name = "Sunny Villa", IsAvailable = false, Capacity = 10, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 9, Name = "Charming Cottage", IsAvailable = true, Capacity = 2, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") },
-        new Cottage { Id = 10, Name = "Secluded Escape", IsAvailable = true, Capacity = 6, CheckIn = DateTime.Parse("2024-12-01"), CheckOut = DateTime.Parse("2024-12-10") }
-    };
+        private readonly IConfiguration _configuration;
+
+        public CottageController(IConfiguration configuration)
+        {
+            _configuration = configuration;
+        }
 
         [HttpGet]
+        [Authorize]
         public ActionResult<IEnumerable<Cottage>> GetAllCottages()
         {
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "SELECT * FROM Cottages";
+            using var command = new MySqlCommand(query, connection);
+
+            using var reader = command.ExecuteReader();
+            var cottages = new List<Cottage>();
+
+            while (reader.Read())
+            {
+                cottages.Add(MapReaderToCottage(reader));
+            }
+
             return Ok(cottages);
         }
 
         [HttpGet("{id}")]
+        [Authorize]
         public ActionResult<Cottage> GetCottageById(int id)
         {
-            var cottage = cottages.FirstOrDefault(c => c.Id == id);
-            if (cottage == null)
-                return NotFound();
-            return Ok(cottage);
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "SELECT * FROM Cottages WHERE Id = @Id";
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                return Ok(MapReaderToCottage(reader));
+            }
+
+            return NotFound();
         }
 
         [HttpPost]
+        [Authorize(Roles = "admin")]
         public ActionResult CreateCottage(Cottage newCottage)
         {
-            // Check if a cottage with the same ID already exists
-            var existingCottage = cottages.FirstOrDefault(c => c.Id == newCottage.Id);
-            if (existingCottage != null)
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            // First check if a cottage with the same ID exists
+            string checkQuery = "SELECT COUNT(*) FROM Cottages WHERE Id = @Id";
+            using (var checkCommand = new MySqlCommand(checkQuery, connection))
             {
-                return Conflict("A cottage with the same ID already exists."); // Return a 409 Conflict status
+                checkCommand.Parameters.AddWithValue("@Id", newCottage.Id);
+                int count = Convert.ToInt32(checkCommand.ExecuteScalar());
+                if (count > 0)
+                    return Conflict("A cottage with the same ID already exists.");
             }
 
-            cottages.Add(newCottage);
+            string query = @"INSERT INTO Cottages (Name, IsAvailable, Capacity, CheckIn, CheckOut) 
+                           VALUES (@Name, @IsAvailable, @Capacity, @CheckIn, @CheckOut);
+                           SELECT LAST_INSERT_ID();";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Name", newCottage.Name);
+            command.Parameters.AddWithValue("@IsAvailable", newCottage.IsAvailable);
+            command.Parameters.AddWithValue("@Capacity", newCottage.Capacity);
+            command.Parameters.AddWithValue("@CheckIn", newCottage.CheckIn);
+            command.Parameters.AddWithValue("@CheckOut", newCottage.CheckOut);
+
+            newCottage.Id = Convert.ToInt32(command.ExecuteScalar());
             return CreatedAtAction(nameof(GetCottageById), new { id = newCottage.Id }, newCottage);
         }
 
         [HttpPut("{id}")]
+        [Authorize(Roles = "admin")]
         public ActionResult UpdateCottage(int id, Cottage updatedCottage)
         {
-            var cottage = cottages.FirstOrDefault(c => c.Id == id);
-            if (cottage == null)
-                return NotFound();
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
 
-            cottage.Name = updatedCottage.Name;
-            cottage.IsAvailable = updatedCottage.IsAvailable;
-            cottage.Capacity = updatedCottage.Capacity;
-            cottage.CheckIn = updatedCottage.CheckIn;
-            cottage.CheckOut = updatedCottage.CheckOut;
+            string query = @"UPDATE Cottages 
+                           SET Name = @Name, 
+                               IsAvailable = @IsAvailable, 
+                               Capacity = @Capacity, 
+                               CheckIn = @CheckIn, 
+                               CheckOut = @CheckOut 
+                           WHERE Id = @Id";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+            command.Parameters.AddWithValue("@Name", updatedCottage.Name);
+            command.Parameters.AddWithValue("@IsAvailable", updatedCottage.IsAvailable);
+            command.Parameters.AddWithValue("@Capacity", updatedCottage.Capacity);
+            command.Parameters.AddWithValue("@CheckIn", updatedCottage.CheckIn);
+            command.Parameters.AddWithValue("@CheckOut", updatedCottage.CheckOut);
+
+            int rowsAffected = command.ExecuteNonQuery();
+            if (rowsAffected == 0)
+                return NotFound();
 
             return NoContent();
         }
 
         [HttpDelete("{id}")]
+        [Authorize(Roles = "admin")]
         public ActionResult DeleteCottage(int id)
         {
-            var cottage = cottages.FirstOrDefault(c => c.Id == id);
-            if (cottage == null)
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "DELETE FROM Cottages WHERE Id = @Id";
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+
+            int rowsAffected = command.ExecuteNonQuery();
+            if (rowsAffected == 0)
                 return NotFound();
 
-            cottages.Remove(cottage);
             return NoContent();
+        }
+
+        private Cottage MapReaderToCottage(MySqlDataReader reader)
+        {
+            return new Cottage
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                Name = reader["Name"].ToString(),
+                IsAvailable = Convert.ToBoolean(reader["IsAvailable"]),
+                Capacity = Convert.ToInt32(reader["Capacity"]),
+                CheckIn = Convert.ToDateTime(reader["CheckIn"]),
+                CheckOut = Convert.ToDateTime(reader["CheckOut"])
+            };
         }
     }
 

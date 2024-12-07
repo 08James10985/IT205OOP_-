@@ -1,4 +1,5 @@
 ﻿using Microsoft.IdentityModel.Tokens;
+using resortM.Models.DTO;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -8,50 +9,48 @@ namespace resortM.Models
 {
     public class AuthHelper
     {
-        private readonly string _jwtKey;
-        private readonly string _jwtIssuer;
-        private readonly string _jwtAudience;
+        private readonly string _salt;
+        private readonly IConfiguration _configuration;
 
         public AuthHelper(IConfiguration configuration)
         {
-            _jwtKey = configuration["Jwt:Key"];
-            _jwtIssuer = configuration["Jwt:Issuer"];
-            _jwtAudience = configuration["Jwt:Audience"];
+            _configuration = configuration;
+            _salt = ")GN#447#^nryrETNwrbR%#&NBRE%#%BBDT#%";
         }
 
-        public string GenerateJwtToken(User user)
+        public string HashPassword(string password)
+        {
+            using (var sha256 = SHA256.Create())
+            {
+                var saltedPassword = _salt + password;
+                var hashBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(saltedPassword));
+                return BitConverter.ToString(hashBytes).Replace("-", "").ToLower();
+            }
+        }
+
+        public string GenerateJwtToken(UserDto user, string platform)
         {
             var claims = new[]
             {
-                new Claim(JwtRegisteredClaimNames.Sub, user.Username),
-             
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())
+                new Claim(JwtRegisteredClaimNames.Sub, user.Email),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim("UserId", user.UserId.ToString()),
+                new Claim("Username", user.Username),
+                new Claim("Role", user.Role),
+                new Claim("Platform", platform)
             };
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtKey));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JwtSettings:Key"]));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
-                issuer: _jwtIssuer,
-                audience: _jwtAudience,
-                claims: claims,
-                expires: DateTime.Now.AddHours(1),
+                _configuration["JwtSettings:Issuer"],
+                _configuration["JwtSettings:Audience"],
+                claims,
+                expires: DateTime.Now.AddMinutes(Convert.ToDouble(_configuration["JwtSettings:ExpiryMinutes"])),
                 signingCredentials: creds);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
-        }
-
-        public (byte[] passwordHash, byte[] passwordSalt) CreatePasswordHash(string password)
-        {
-            using var hmac = new HMACSHA512();
-            return (hmac.ComputeHash(Encoding.UTF8.GetBytes(password)), hmac.Key);
-        }
-
-        public bool VerifyPasswordHash(string password, byte[] storedHash, byte[] storedSalt)
-        {
-            using var hmac = new HMACSHA512(storedSalt);
-            var computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(password));
-            return computedHash.SequenceEqual(storedHash);
         }
     }
 }

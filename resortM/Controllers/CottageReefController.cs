@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using MySql.Data.MySqlClient;
 using Resort_Management.Model;
 
 namespace ResortManagementSystem.Controllers
@@ -7,66 +9,135 @@ namespace ResortManagementSystem.Controllers
     [ApiController]
     public class CottageReefController : ControllerBase
     {
-        private static List<CottageReef> cottageReefs = new List<CottageReef>
+        private readonly IConfiguration _configuration;
+
+        public CottageReefController(IConfiguration configuration)
         {
-            new CottageReef { Id = 1, ActivityName = "Snorkeling Adventure", Description = "Explore the vibrant coral reefs and marine life.", IsAvailable = true, EquipmentRentalPrice = 20.00m, Schedule = "9 AM - 12 PM" },
-            new CottageReef { Id = 2, ActivityName = "Kayaking", Description = "Paddle through calm waters and enjoy the scenery.", IsAvailable = false, EquipmentRentalPrice = 15.00m, Schedule = "1 PM - 4 PM" },
-            new CottageReef { Id = 3, ActivityName = "Beach Volleyball", Description = "Join a game on the beach with friends and family.", IsAvailable = true, EquipmentRentalPrice = 5.00m, Schedule = "3 PM - 6 PM" },
-            new CottageReef { Id = 4, ActivityName = "Stand Up Paddleboarding", Description = "Experience the beauty of the water while paddling.", IsAvailable = true, EquipmentRentalPrice = 25.00m, Schedule = "8 AM - 11 AM" },
-            new CottageReef { Id = 5, ActivityName = "Fishing Trip", Description = "Catch fresh fish with our guided fishing tours.", IsAvailable = false, EquipmentRentalPrice = 30.00m, Schedule = "5 AM - 10 AM" },
-            new CottageReef { Id = 6, ActivityName = "Jet Skiing", Description = "Get your adrenaline pumping with exciting jet ski rides.", IsAvailable = true, EquipmentRentalPrice = 50.00m, Schedule = "10 AM - 1 PM" },
-            new CottageReef { Id = 7, ActivityName = "Sunset Cruise", Description = "Enjoy a relaxing cruise during sunset.", IsAvailable = true, EquipmentRentalPrice = 40.00m, Schedule = "5 PM - 7 PM" },
-            new CottageReef { Id = 8, ActivityName = "Beach Bonfire", Description = "Gather around a bonfire for a night of fun.", IsAvailable = true, EquipmentRentalPrice = 10.00m, Schedule = "7 PM - 10 PM" },
-            new CottageReef { Id = 9, ActivityName = "Guided Nature Walk", Description = "Explore the local flora and fauna with a guide.", IsAvailable = true, EquipmentRentalPrice = 15.00m, Schedule = "8 AM - 10 AM" },
-            new CottageReef { Id = 10, ActivityName = "Scuba Diving", Description = "Dive into the depths and discover underwater treasures.", IsAvailable = false, EquipmentRentalPrice = 60.00m, Schedule = "11 AM - 3 PM" }
-        };
+            _configuration = configuration;
+        }
+
         [HttpGet]
+        [Authorize]
         public ActionResult<IEnumerable<CottageReef>> GetAllCottageReefs()
         {
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "SELECT * FROM CottageReefs";
+            using var command = new MySqlCommand(query, connection);
+
+            using var reader = command.ExecuteReader();
+            var cottageReefs = new List<CottageReef>();
+
+            while (reader.Read())
+            {
+                cottageReefs.Add(MapReaderToCottageReef(reader));
+            }
+
             return Ok(cottageReefs);
         }
 
         [HttpGet("{id}")]
+        [Authorize]
         public ActionResult<CottageReef> GetCottageReefById(int id)
         {
-            var cottageReef = cottageReefs.FirstOrDefault(cr => cr.Id == id);
-            if (cottageReef == null)
-                return NotFound();
-            return Ok(cottageReef);
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "SELECT * FROM CottageReefs WHERE Id = @Id";
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                return Ok(MapReaderToCottageReef(reader));
+            }
+
+            return NotFound();
         }
 
         [HttpPost]
+        [Authorize(Roles = "admin")]
         public ActionResult CreateCottageReef(CottageReef newCottageReef)
         {
-            cottageReefs.Add(newCottageReef);
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = @"INSERT INTO CottageReefs (ActivityName, Description, IsAvailable, EquipmentRentalPrice, Schedule) 
+                           VALUES (@ActivityName, @Description, @IsAvailable, @EquipmentRentalPrice, @Schedule);
+                           SELECT LAST_INSERT_ID();";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@ActivityName", newCottageReef.ActivityName);
+            command.Parameters.AddWithValue("@Description", newCottageReef.Description);
+            command.Parameters.AddWithValue("@IsAvailable", newCottageReef.IsAvailable);
+            command.Parameters.AddWithValue("@EquipmentRentalPrice", newCottageReef.EquipmentRentalPrice);
+            command.Parameters.AddWithValue("@Schedule", newCottageReef.Schedule);
+
+            newCottageReef.Id = Convert.ToInt32(command.ExecuteScalar());
             return CreatedAtAction(nameof(GetCottageReefById), new { id = newCottageReef.Id }, newCottageReef);
         }
 
         [HttpPut("{id}")]
+        [Authorize(Roles = "admin")]
         public ActionResult UpdateCottageReef(int id, CottageReef updatedCottageReef)
         {
-            var cottageReef = cottageReefs.FirstOrDefault(cr => cr.Id == id);
-            if (cottageReef == null)
-                return NotFound();
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
 
-            cottageReef.ActivityName = updatedCottageReef.ActivityName;
-            cottageReef.Description = updatedCottageReef.Description;
-            cottageReef.IsAvailable = updatedCottageReef.IsAvailable;
-            cottageReef.EquipmentRentalPrice = updatedCottageReef.EquipmentRentalPrice;
-            cottageReef.Schedule = updatedCottageReef.Schedule;
+            string query = @"UPDATE CottageReefs 
+                           SET ActivityName = @ActivityName, 
+                               Description = @Description, 
+                               IsAvailable = @IsAvailable, 
+                               EquipmentRentalPrice = @EquipmentRentalPrice, 
+                               Schedule = @Schedule 
+                           WHERE Id = @Id";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+            command.Parameters.AddWithValue("@ActivityName", updatedCottageReef.ActivityName);
+            command.Parameters.AddWithValue("@Description", updatedCottageReef.Description);
+            command.Parameters.AddWithValue("@IsAvailable", updatedCottageReef.IsAvailable);
+            command.Parameters.AddWithValue("@EquipmentRentalPrice", updatedCottageReef.EquipmentRentalPrice);
+            command.Parameters.AddWithValue("@Schedule", updatedCottageReef.Schedule);
+
+            int rowsAffected = command.ExecuteNonQuery();
+            if (rowsAffected == 0)
+                return NotFound();
 
             return NoContent();
         }
 
         [HttpDelete("{id}")]
+        [Authorize(Roles = "admin")]
         public ActionResult DeleteCottageReef(int id)
         {
-            var cottageReef = cottageReefs.FirstOrDefault(cr => cr.Id == id);
-            if (cottageReef == null)
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "DELETE FROM CottageReefs WHERE Id = @Id";
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+
+            int rowsAffected = command.ExecuteNonQuery();
+            if (rowsAffected == 0)
                 return NotFound();
 
-            cottageReefs.Remove(cottageReef);
             return NoContent();
+        }
+
+        private CottageReef MapReaderToCottageReef(MySqlDataReader reader)
+        {
+            return new CottageReef
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                ActivityName = reader["ActivityName"].ToString(),
+                Description = reader["Description"].ToString(),
+                IsAvailable = Convert.ToBoolean(reader["IsAvailable"]),
+                EquipmentRentalPrice = Convert.ToDecimal(reader["EquipmentRentalPrice"]),
+                Schedule = reader["Schedule"].ToString()
+            };
         }
     }
 }

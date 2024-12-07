@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("resortM")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+12c25fe7f6a02f0b0633e9da09e41e2f4e39db0a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+defe6fe963d6ef26899f5f6ada5b538a8c0d2e79")]
 [assembly: System.Reflection.AssemblyProductAttribute("resortM")]
 [assembly: System.Reflection.AssemblyTitleAttribute("resortM")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

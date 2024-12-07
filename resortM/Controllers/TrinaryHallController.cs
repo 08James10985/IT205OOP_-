@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using MySql.Data.MySqlClient;
 using ResortManagementSystem_2.Model;
 
 namespace ResortManagementSystem.Controllers
@@ -7,67 +9,131 @@ namespace ResortManagementSystem.Controllers
     [ApiController]
     public class TrinaryHallController : ControllerBase
     {
-        private static List<TrinaryHall> trinaryHalls = new List<TrinaryHall>
+        private readonly IConfiguration _configuration;
+
+        public TrinaryHallController(IConfiguration configuration)
         {
-            new TrinaryHall { Id = 1, HallName = "Main Hall", Capacity = 200, IsAvailable = true, RentalPricePerHour = 500.00m },
-            new TrinaryHall { Id = 2, HallName = "Garden Hall", Capacity = 150, IsAvailable = false, RentalPricePerHour = 400.00m },
-            new TrinaryHall { Id = 3, HallName = "Conference Hall", Capacity = 100, IsAvailable = true, RentalPricePerHour = 300.00m },
-            new TrinaryHall { Id = 4, HallName = "Banquet Hall", Capacity = 250, IsAvailable = true, RentalPricePerHour = 600.00m },
-            new TrinaryHall { Id = 5, HallName = "Exhibition Hall", Capacity = 300, IsAvailable = false, RentalPricePerHour = 700.00m },
-            new TrinaryHall { Id = 6, HallName = "Workshop Hall", Capacity = 80, IsAvailable = true, RentalPricePerHour = 250.00m },
-            new TrinaryHall { Id = 7, HallName = "Ballroom", Capacity = 350, IsAvailable = true, RentalPricePerHour = 800.00m },
-            new TrinaryHall { Id = 8, HallName = "VIP Hall", Capacity = 50, IsAvailable = true, RentalPricePerHour = 900.00m },
-            new TrinaryHall { Id = 9, HallName = "Outdoor Tent", Capacity = 120, IsAvailable = false, RentalPricePerHour = 350.00m },
-            new TrinaryHall { Id = 10, HallName = "Small Conference Room", Capacity = 30, IsAvailable = true, RentalPricePerHour = 200.00m }
-        };
+            _configuration = configuration;
+        }
 
         [HttpGet]
+        [Authorize]
         public ActionResult<IEnumerable<TrinaryHall>> GetAllTrinaryHalls()
         {
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "SELECT * FROM TrinaryHalls";
+            using var command = new MySqlCommand(query, connection);
+
+            using var reader = command.ExecuteReader();
+            var trinaryHalls = new List<TrinaryHall>();
+
+            while (reader.Read())
+            {
+                trinaryHalls.Add(MapReaderToTrinaryHall(reader));
+            }
+
             return Ok(trinaryHalls);
         }
 
         [HttpGet("{id}")]
+        [Authorize]
         public ActionResult<TrinaryHall> GetTrinaryHallById(int id)
         {
-            var trinaryHall = trinaryHalls.FirstOrDefault(th => th.Id == id);
-            if (trinaryHall == null)
-                return NotFound();
-            return Ok(trinaryHall);
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "SELECT * FROM TrinaryHalls WHERE Id = @Id";
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                return Ok(MapReaderToTrinaryHall(reader));
+            }
+
+            return NotFound();
         }
 
         [HttpPost]
+        [Authorize(Roles = "admin")]
         public ActionResult CreateTrinaryHall(TrinaryHall newTrinaryHall)
         {
-            trinaryHalls.Add(newTrinaryHall);
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = @"INSERT INTO TrinaryHalls (HallName, Capacity, IsAvailable, RentalPricePerHour) 
+                           VALUES (@HallName, @Capacity, @IsAvailable, @RentalPricePerHour);
+                           SELECT LAST_INSERT_ID();";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@HallName", newTrinaryHall.HallName);
+            command.Parameters.AddWithValue("@Capacity", newTrinaryHall.Capacity);
+            command.Parameters.AddWithValue("@IsAvailable", newTrinaryHall.IsAvailable);
+            command.Parameters.AddWithValue("@RentalPricePerHour", newTrinaryHall.RentalPricePerHour);
+
+            newTrinaryHall.Id = Convert.ToInt32(command.ExecuteScalar());
             return CreatedAtAction(nameof(GetTrinaryHallById), new { id = newTrinaryHall.Id }, newTrinaryHall);
         }
 
         [HttpPut("{id}")]
+        [Authorize(Roles = "admin")]
         public ActionResult UpdateTrinaryHall(int id, TrinaryHall updatedTrinaryHall)
         {
-            var trinaryHall = trinaryHalls.FirstOrDefault(th => th.Id == id);
-            if (trinaryHall == null)
-                return NotFound();
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
 
-            trinaryHall.Id = updatedTrinaryHall.Id;
-            trinaryHall.RentalPricePerHour = updatedTrinaryHall.RentalPricePerHour;
-            trinaryHall.HallName = updatedTrinaryHall.HallName;
-            trinaryHall.Capacity = updatedTrinaryHall.Capacity;
-            trinaryHall.IsAvailable = updatedTrinaryHall.IsAvailable;
+            string query = @"UPDATE TrinaryHalls 
+                           SET HallName = @HallName, 
+                               Capacity = @Capacity, 
+                               IsAvailable = @IsAvailable, 
+                               RentalPricePerHour = @RentalPricePerHour 
+                           WHERE Id = @Id";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+            command.Parameters.AddWithValue("@HallName", updatedTrinaryHall.HallName);
+            command.Parameters.AddWithValue("@Capacity", updatedTrinaryHall.Capacity);
+            command.Parameters.AddWithValue("@IsAvailable", updatedTrinaryHall.IsAvailable);
+            command.Parameters.AddWithValue("@RentalPricePerHour", updatedTrinaryHall.RentalPricePerHour);
+
+            int rowsAffected = command.ExecuteNonQuery();
+            if (rowsAffected == 0)
+                return NotFound();
 
             return NoContent();
         }
 
         [HttpDelete("{id}")]
+        [Authorize(Roles = "admin")]
         public ActionResult DeleteTrinaryHall(int id)
         {
-            var trinaryHall = trinaryHalls.FirstOrDefault(th => th.Id == id);
-            if (trinaryHall == null)
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "DELETE FROM TrinaryHalls WHERE Id = @Id";
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+
+            int rowsAffected = command.ExecuteNonQuery();
+            if (rowsAffected == 0)
                 return NotFound();
 
-            trinaryHalls.Remove(trinaryHall);
             return NoContent();
+        }
+
+        private TrinaryHall MapReaderToTrinaryHall(MySqlDataReader reader)
+        {
+            return new TrinaryHall
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                HallName = reader["HallName"].ToString(),
+                Capacity = Convert.ToInt32(reader["Capacity"]),
+                IsAvailable = Convert.ToBoolean(reader["IsAvailable"]),
+                RentalPricePerHour = Convert.ToDecimal(reader["RentalPricePerHour"])
+            };
         }
     }
 }

@@ -1,5 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using MySql.Data.MySqlClient;
 using ResortManagementSystem_2.Model;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ResortManagementSystem.Controllers
 {
@@ -7,69 +9,135 @@ namespace ResortManagementSystem.Controllers
     [ApiController]
     public class ConferenceRoomController : ControllerBase
     {
+        private readonly IConfiguration _configuration;
 
-        private static List<ConferenceRoom> conferenceRooms = new List<ConferenceRoom>
+        public ConferenceRoomController(IConfiguration configuration)
         {
-            new ConferenceRoom { Id = 1, Name = "Ocean View Hall", Capacity = 50, IsAvailable = true, CateringServices = true, HasTechnicalSupport = true },
-            new ConferenceRoom { Id = 2, Name = "Coral Reef Room", Capacity = 30, IsAvailable = true, CateringServices = false, HasTechnicalSupport = true },
-            new ConferenceRoom { Id = 3, Name = "Sunset Lounge", Capacity = 40, IsAvailable = false, CateringServices = true, HasTechnicalSupport = false },
-            new ConferenceRoom { Id = 4, Name = "Beachfront Pavilion", Capacity = 100, IsAvailable = true, CateringServices = true, HasTechnicalSupport = true },
-            new ConferenceRoom { Id = 5, Name = "Seaside Conference Center", Capacity = 70, IsAvailable = false, CateringServices = false, HasTechnicalSupport = true },
-            new ConferenceRoom { Id = 6, Name = "Lagoon View Hall", Capacity = 60, IsAvailable = true, CateringServices = true, HasTechnicalSupport = false },
-            new ConferenceRoom { Id = 7, Name = "Palm Grove Hall", Capacity = 20, IsAvailable = true, CateringServices = false, HasTechnicalSupport = false },
-            new ConferenceRoom { Id = 8, Name = "Tropical Oasis Room", Capacity = 80, IsAvailable = false, CateringServices = true, HasTechnicalSupport = true },
-            new ConferenceRoom { Id = 9, Name = "Garden View Pavilion", Capacity = 90, IsAvailable = true, CateringServices = true, HasTechnicalSupport = false },
-            new ConferenceRoom { Id = 10, Name = "Coconut Grove Center", Capacity = 120, IsAvailable = true, CateringServices = true, HasTechnicalSupport = true }
-        };
-
+            _configuration = configuration;
+        }
 
         [HttpGet]
+        [Authorize]
         public ActionResult<IEnumerable<ConferenceRoom>> GetAllConferenceRooms()
         {
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "SELECT * FROM ConferenceRooms";
+            using var command = new MySqlCommand(query, connection);
+
+            using var reader = command.ExecuteReader();
+            var conferenceRooms = new List<ConferenceRoom>();
+
+            while (reader.Read())
+            {
+                conferenceRooms.Add(MapReaderToConferenceRoom(reader));
+            }
+
             return Ok(conferenceRooms);
         }
 
         [HttpGet("{id}")]
+        [Authorize]
         public ActionResult<ConferenceRoom> GetConferenceRoomById(int id)
         {
-            var conferenceRoom = conferenceRooms.FirstOrDefault(cr => cr.Id == id);
-            if (conferenceRoom == null)
-                return NotFound();
-            return Ok(conferenceRoom);
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "SELECT * FROM ConferenceRooms WHERE Id = @Id";
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+
+            using var reader = command.ExecuteReader();
+            if (reader.Read())
+            {
+                return Ok(MapReaderToConferenceRoom(reader));
+            }
+
+            return NotFound();
         }
 
         [HttpPost]
+        [Authorize(Roles = "admin")]
         public ActionResult CreateConferenceRoom(ConferenceRoom newConferenceRoom)
         {
-            conferenceRooms.Add(newConferenceRoom);
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = @"INSERT INTO ConferenceRooms (Name, Capacity, IsAvailable, CateringServices, HasTechnicalSupport) 
+                           VALUES (@Name, @Capacity, @IsAvailable, @CateringServices, @HasTechnicalSupport);
+                           SELECT LAST_INSERT_ID();";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Name", newConferenceRoom.Name);
+            command.Parameters.AddWithValue("@Capacity", newConferenceRoom.Capacity);
+            command.Parameters.AddWithValue("@IsAvailable", newConferenceRoom.IsAvailable);
+            command.Parameters.AddWithValue("@CateringServices", newConferenceRoom.CateringServices);
+            command.Parameters.AddWithValue("@HasTechnicalSupport", newConferenceRoom.HasTechnicalSupport);
+
+            newConferenceRoom.Id = Convert.ToInt32(command.ExecuteScalar());
             return CreatedAtAction(nameof(GetConferenceRoomById), new { id = newConferenceRoom.Id }, newConferenceRoom);
         }
 
         [HttpPut("{id}")]
+        [Authorize(Roles = "admin")]
         public ActionResult UpdateConferenceRoom(int id, ConferenceRoom updatedConferenceRoom)
         {
-            var conferenceRoom = conferenceRooms.FirstOrDefault(cr => cr.Id == id);
-            if (conferenceRoom == null)
-                return NotFound();
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
 
-            conferenceRoom.Name = updatedConferenceRoom.Name;
-            conferenceRoom.Capacity = updatedConferenceRoom.Capacity;
-            conferenceRoom.IsAvailable = updatedConferenceRoom.IsAvailable;
-            conferenceRoom.CateringServices = updatedConferenceRoom.CateringServices;
-            conferenceRoom.HasTechnicalSupport = updatedConferenceRoom.HasTechnicalSupport;
+            string query = @"UPDATE ConferenceRooms 
+                           SET Name = @Name, 
+                               Capacity = @Capacity, 
+                               IsAvailable = @IsAvailable, 
+                               CateringServices = @CateringServices, 
+                               HasTechnicalSupport = @HasTechnicalSupport 
+                           WHERE Id = @Id";
+
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+            command.Parameters.AddWithValue("@Name", updatedConferenceRoom.Name);
+            command.Parameters.AddWithValue("@Capacity", updatedConferenceRoom.Capacity);
+            command.Parameters.AddWithValue("@IsAvailable", updatedConferenceRoom.IsAvailable);
+            command.Parameters.AddWithValue("@CateringServices", updatedConferenceRoom.CateringServices);
+            command.Parameters.AddWithValue("@HasTechnicalSupport", updatedConferenceRoom.HasTechnicalSupport);
+
+            int rowsAffected = command.ExecuteNonQuery();
+            if (rowsAffected == 0)
+                return NotFound();
 
             return NoContent();
         }
 
         [HttpDelete("{id}")]
+        [Authorize(Roles = "admin")]
         public ActionResult DeleteConferenceRoom(int id)
         {
-            var conferenceRoom = conferenceRooms.FirstOrDefault(cr => cr.Id == id);
-            if (conferenceRoom == null)
+            using var connection = new MySqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            connection.Open();
+
+            string query = "DELETE FROM ConferenceRooms WHERE Id = @Id";
+            using var command = new MySqlCommand(query, connection);
+            command.Parameters.AddWithValue("@Id", id);
+
+            int rowsAffected = command.ExecuteNonQuery();
+            if (rowsAffected == 0)
                 return NotFound();
 
-            conferenceRooms.Remove(conferenceRoom);
             return NoContent();
+        }
+
+        private ConferenceRoom MapReaderToConferenceRoom(MySqlDataReader reader)
+        {
+            return new ConferenceRoom
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                Name = reader["Name"].ToString(),
+                Capacity = Convert.ToInt32(reader["Capacity"]),
+                IsAvailable = Convert.ToBoolean(reader["IsAvailable"]),
+                CateringServices = Convert.ToBoolean(reader["CateringServices"]),
+                HasTechnicalSupport = Convert.ToBoolean(reader["HasTechnicalSupport"])
+            };
         }
     }
 }
